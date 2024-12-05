@@ -1,0 +1,13 @@
+[package]
+name = "bitcask-rs"
+version = "0.1.0"
+edition = "2021"
+
+
+
+[dependencies]
+parking_lot = "0.12.3"
+log = "0.4"
+env_logger = "0.11.5"
+thiserror = "2.0.4"
+bytes = "1.9.0"
