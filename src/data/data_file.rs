@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::{errors::Result, fio};
 
-use super::log_record::LogRecord;
+use super::log_record::ReadLogRecord;
 
 // 数据文件
 pub struct DataFile {
@@ -12,6 +12,8 @@ pub struct DataFile {
     write_off: Arc<RwLock<u64>>,         // 当前写偏移，记录该数据文件写到哪个位置了
     io_manager: Box<dyn fio::IOManager>, // IO 管理
 }
+
+pub const DATA_FILE_NAME_SUFFIX: &str = ".data";
 
 impl DataFile {
     /// 创建或打开一个新的数据文件
@@ -24,12 +26,17 @@ impl DataFile {
         *read_guard
     }
 
+    pub fn set_write_off(&self, offset: u64) {
+        let mut write_guard = self.write_off.write();
+        *write_guard = offset;
+    }
+
     pub fn get_file_id(&self) -> u32 {
         let read_guard = self.file_id.read();
         *read_guard
     }
 
-    pub fn read_log_record(&self, offset: u64) -> LogRecord {
+    pub fn read_log_record(&self, offset: u64) -> Result<ReadLogRecord> {
         todo!()
     }
 
