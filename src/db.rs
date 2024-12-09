@@ -108,6 +108,38 @@ impl Engine {
         Ok(())
     }
 
+    /// 根据 key 删除对应的数据
+    pub fn delete(&self, key: Bytes) -> Result<()> {
+        // 判断 key 的有效性
+        if key.is_empty() {
+            return Err(Errors::KeyIsEmpty);
+        }
+
+        // 从内存索引中取出对应的数据，不存在的话直接返回
+        let pos = self.index.get(key.to_vec());
+        if pos.is_none() {
+            return Ok(());
+        }
+
+        // 构造 LogRecord， 标识其是被删除的
+        let mut record = LogRecord {
+            key: key.to_vec(),
+            value: Default::default(),
+            rec_type: LogRecordType::DELETED,
+        };
+
+        // 写入到数据文件中
+        self.append_log_record(&mut record)?;
+
+        // 删除内存索引中对应的 key
+        let ok = self.index.delete(key.to_vec());
+        if !ok {
+            return Err(Errors::IndexUpdateFailed);
+        }
+
+        Ok(())
+    }
+
     /// 根据 key 获取对应的数据
     pub fn get(&self, key: Bytes) -> Result<Bytes> {
         // 判断 key 的有效性
@@ -236,13 +268,16 @@ impl Engine {
                     offset,
                 };
 
-                match log_record.rec_type {
+                let ok = match log_record.rec_type {
                     LogRecordType::NOMAL => self.index.put(log_record.key.to_vec(), log_record_pos),
                     LogRecordType::DELETED => self.index.delete(log_record.key.to_vec()),
                 };
+                if !ok {
+                    return Err(Errors::IndexUpdateFailed);
+                }
 
                 // 递增 offset，下一次读取的时候从新的位置开始
-                offset += size;
+                offset += size as u64;
             }
 
             // 设置活跃文件的 offset
