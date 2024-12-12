@@ -21,7 +21,7 @@ pub struct Engine {
     options: Arc<Options>,
     active_file: Arc<RwLock<DataFile>>, // 当前活跃数据文件
     older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
-    index: Box<dyn index::Indexer>,     // 数据内存索引
+    pub(crate) index: Box<dyn index::Indexer>, // 数据内存索引
     file_ids: Vec<u32>, // 数据库启动时的文件 id，只能用于加载索引，不允许在其他地方更改或使用
 }
 
@@ -81,6 +81,18 @@ impl Engine {
         engine.load_index_from_data_files();
 
         Ok(engine)
+    }
+
+    /// 关闭数据库，释放相关资源
+    pub fn close(&self) -> Result<()> {
+        let read_guard = self.active_file.read();
+        read_guard.sync()
+    }
+
+    /// 持久化当前活跃文件
+    pub fn sync(&self) -> Result<()> {
+        let read_guard = self.active_file.read();
+        read_guard.sync()
     }
 
     /// 出处 key/value 数据，key 不能为空
@@ -154,13 +166,14 @@ impl Engine {
             return Err(Errors::KeyNotFound);
         }
 
-        // 从对应的数据文件中获取对应的 LogRecord
         let log_record_pos = pos.unwrap();
-        let active_file: parking_lot::lock_api::RwLockReadGuard<
-            '_,
-            parking_lot::RawRwLock,
-            DataFile,
-        > = self.active_file.read();
+        self.get_value_by_position(&log_record_pos)
+    }
+
+    /// 根据索引信息获取 value
+    pub(crate) fn get_value_by_position(&self, log_record_pos: &LogRecordPos) -> Result<Bytes> {
+        // 从对应的数据文件中获取对应的 LogRecord
+        let active_file = self.active_file.read();
         let older_files = self.older_files.read();
         let log_record = match active_file.get_file_id() == log_record_pos.file_id {
             true => active_file.read_log_record(log_record_pos.offset)?.record,

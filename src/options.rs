@@ -22,3 +22,29 @@ pub enum IndexType {
     // 跳表索引
     SkipList,
 }
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            dir_path: std::env::temp_dir().join("bitcask-rs"),
+            data_file_size: 256 * 1024 * 1024,
+            sync_writes: false,
+            index_type: IndexType::BTree,
+        }
+    }
+}
+
+/// 索引迭代器配置项
+pub struct IteratorOptions {
+    pub prefix: Vec<u8>,
+    pub reverse: bool,
+}
+
+impl Default for IteratorOptions {
+    fn default() -> Self {
+        Self {
+            prefix: Default::default(),
+            reverse: false,
+        }
+    }
+}

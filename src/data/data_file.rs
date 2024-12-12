@@ -55,7 +55,7 @@ impl DataFile {
         // 先取出 header 部分的数据
         let mut header_buf = BytesMut::zeroed(max_log_record_header_size());
 
-        self.io_manager.read(&mut header_buf, offset);
+        self.io_manager.read(&mut header_buf, offset)?;
 
         // 取出 type，在第一个字节
         let rec_type = header_buf.get_u8();
@@ -76,10 +76,10 @@ impl DataFile {
         // 读取实际的 key 和 value，最后的 4 个字节是 crc 校验值
         let mut kv_buf = BytesMut::zeroed(key_size + value_size + 4);
         self.io_manager
-            .read(&mut kv_buf, offset + actual_header_size as u64);
+            .read(&mut kv_buf, offset + actual_header_size as u64)?;
 
         // 构造 LogRecord
-        let mut log_record = LogRecord {
+        let log_record = LogRecord {
             key: kv_buf.get(..key_size).unwrap().to_vec(),
             value: kv_buf.get(key_size..kv_buf.len() - 4).unwrap().to_vec(),
             rec_type: LogRecordType::from_u8(rec_type),
@@ -173,5 +173,62 @@ mod tests {
 
         let sync_res = data_file1.sync();
         assert!(sync_res.is_ok());
+    }
+
+    #[test]
+    fn test_data_file_read_log_record() {
+        let dir_path = std::env::temp_dir();
+        let data_file_res1 = DataFile::new(dir_path.clone(), 700);
+        assert!(data_file_res1.is_ok());
+        let data_file1 = data_file_res1.unwrap();
+        assert_eq!(data_file1.get_file_id(), 700);
+
+        let enc1 = LogRecord {
+            key: "name".as_bytes().to_vec(),
+            value: "bitcask-rs-kv".as_bytes().to_vec(),
+            rec_type: LogRecordType::NOMAL,
+        };
+        let write_res1 = data_file1.write(&enc1.encode());
+        assert!(write_res1.is_ok());
+
+        // 从起始位置读取
+        let read_res1 = data_file1.read_log_record(0);
+        assert!(read_res1.is_ok());
+        let read_enc1 = read_res1.ok().unwrap().record;
+        assert_eq!(enc1.key, read_enc1.key);
+        assert_eq!(enc1.value, read_enc1.value);
+        assert_eq!(enc1.rec_type, read_enc1.rec_type);
+
+        // 从新的位置开启读取
+        let enc2 = LogRecord {
+            key: "name".as_bytes().to_vec(),
+            value: "new-value".as_bytes().to_vec(),
+            rec_type: LogRecordType::NOMAL,
+        };
+        let write_res2 = data_file1.write(&enc2.encode());
+        assert!(write_res2.is_ok());
+
+        let read_res2 = data_file1.read_log_record(24);
+        assert!(read_res2.is_ok());
+        let read_enc2 = read_res2.ok().unwrap().record;
+        assert_eq!(enc2.key, read_enc2.key);
+        assert_eq!(enc2.value, read_enc2.value);
+        assert_eq!(enc2.rec_type, read_enc2.rec_type);
+
+        // 添加删除类型记录
+        let enc3 = LogRecord {
+            key: "name".as_bytes().to_vec(),
+            value: Default::default(),
+            rec_type: LogRecordType::DELETED,
+        };
+        let write_res3 = data_file1.write(&enc3.encode());
+        assert!(write_res3.is_ok());
+
+        let read_res3 = data_file1.read_log_record(44);
+        assert!(read_res3.is_ok());
+        let read_enc3 = read_res3.ok().unwrap().record;
+        assert_eq!(enc3.key, read_enc3.key);
+        assert_eq!(enc3.value, read_enc3.value);
+        assert_eq!(enc3.rec_type, read_enc3.rec_type);
     }
 }
