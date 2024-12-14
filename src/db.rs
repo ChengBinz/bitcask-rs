@@ -10,14 +10,10 @@ use log::warn;
 use parking_lot::{Mutex, RwLock};
 
 use crate::{
-    batch::parse_log_record_key,
-    data::{
-        data_file::{DataFile, DATA_FILE_NAME_SUFFIX},
+    batch::parse_log_record_key, data::{
+        data_file::{DataFile, DATA_FILE_NAME_SUFFIX, MERGE_FINISHED_FILE_NAME},
         log_record::{LogRecord, LogRecordPos, LogRecordType, TransactionRecord},
-    },
-    errors::{Errors, Result},
-    index,
-    options::Options,
+    }, errors::{Errors, Result}, index, merge::load_merge_files, options::Options
 };
 
 const INITIAL_FILE_ID: u32 = 0;
@@ -25,13 +21,14 @@ pub(crate) const NON_TRANSACTION_SEQ_NO: usize = 0;
 
 /// bitcask 存储引擎实例结构体
 pub struct Engine {
-    options: Arc<Options>,
-    active_file: Arc<RwLock<DataFile>>, // 当前活跃数据文件
-    older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
+    pub(crate) options: Arc<Options>,
+    pub(crate) active_file: Arc<RwLock<DataFile>>, // 当前活跃数据文件
+    pub(crate) older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
     pub(crate) index: Box<dyn index::Indexer>, // 数据内存索引
     file_ids: Vec<u32>, // 数据库启动时的文件 id，只能用于加载索引，不允许在其他地方更改或使用
     pub(crate) batch_commit_lock: Mutex<()>, // 数据提交保证串行化
     pub(crate) seq_no: Arc<AtomicUsize>, // 事务序列号，全局递增
+    pub(crate) merging_lock: Mutex<()>, // 防止多个线程同时 merge
 }
 
 ///
@@ -52,6 +49,9 @@ impl Engine {
                 return Err(Errors::FailedToCreateDatabaseDir);
             }
         }
+
+        // 加载 merge 数据目录
+        load_merge_files(dir_path.clone())?;
 
         // 加载数据文件
         let mut data_files = load_data_files(dir_path.clone())?;
@@ -86,7 +86,11 @@ impl Engine {
             file_ids,
             batch_commit_lock: Mutex::new(()),
             seq_no: Arc::new(AtomicUsize::new(1)),
+            merging_lock: Mutex::new(()),
         };
+
+        // 从 hint 文件中加载索引
+        engine.load_index_from_hint_file()?;
 
         // 从数据文件中加载索引
         let current_seq_no = engine.load_index_from_data_files()?;
@@ -268,6 +272,19 @@ impl Engine {
             return Ok(current_seq_no);
         }
 
+        // 拿到最近未参与 merge 的文件 id
+        let mut has_merge = false;
+        let mut non_merge_fid = 0;
+        let merge_fin_file = self.options.dir_path.join(MERGE_FINISHED_FILE_NAME);
+        if merge_fin_file.is_file() {
+            let merge_fin_file = DataFile::new_merge_fin_file(self.options.dir_path.clone())?;
+            let merge_fin_record = merge_fin_file.read_log_record(0)?;
+            let v = String::from_utf8(merge_fin_record.record.value).unwrap();
+
+            non_merge_fid = v.parse::<u32>().unwrap();
+            has_merge = true;
+        }
+
         let mut transaction_records = HashMap::new();
 
         let active_file = self.active_file.read();
@@ -275,6 +292,11 @@ impl Engine {
 
         // 遍历每个文件 id，取出对应的数据文件，并加载其中的数据
         for (i, file_id) in self.file_ids.iter().enumerate() {
+            // 如果比最近未参与 merge 的文件id 更小，则已经从 hint 文件中加载索引了
+            if has_merge && *file_id < non_merge_fid {
+                continue;
+            }
+            
             let mut offset = 0;
             loop {
                 let log_record_res = match *file_id == active_file.get_file_id() {

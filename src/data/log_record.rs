@@ -1,5 +1,10 @@
-use bytes::{BufMut, BytesMut};
-use prost::{encode_length_delimiter, length_delimiter_len};
+use std::panic;
+
+use bytes::{BufMut, Bytes, BytesMut};
+use prost::{
+    encode_length_delimiter, 
+    encoding::{decode_varint, encode_varint},
+    length_delimiter_len};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum LogRecordType {
@@ -25,8 +30,8 @@ pub struct LogRecord {
 //  数据位置索引信息，描述数据存储到了哪个位置
 #[derive(Clone, Copy, Debug)]
 pub struct LogRecordPos {
-    pub(crate) file_id: u32,
-    pub(crate) offset: u64,
+    pub(crate) file_id: u32,    // 文件 id, 表示将数据存储到了哪个文件当中
+    pub(crate) offset: u64,     // 偏移, 表示将数据存储到了数据文件中的哪个位置
 }
 
 #[derive(Debug)]
@@ -84,6 +89,7 @@ impl LogRecord {
         (buf.to_vec(), crc)
     }
 
+    // LogRecord 编码后的长度
     fn encode_length(&self) -> usize {
         std::mem::size_of::<u8>()
             + length_delimiter_len(self.key.len())
@@ -105,9 +111,38 @@ impl LogRecordType {
     }
 }
 
+impl LogRecordPos {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = BytesMut::new();
+        encode_varint(self.file_id as u64, &mut buf);
+        encode_varint(self.offset, &mut buf);
+        buf.to_vec()
+    }
+}
+
 /// 获取 LogRecord header 部分的最大长度
 pub fn max_log_record_header_size() -> usize {
     std::mem::size_of::<u8>() + length_delimiter_len(std::u32::MAX as usize) * 2
+}
+
+/// 解码 LogRecordPos
+pub fn decode_log_record_pos(pos: Vec<u8>) -> LogRecordPos {
+    let mut buf = BytesMut::new();
+    buf.put_slice(&pos);
+
+    let fid = match decode_varint(&mut buf) {
+        Ok(fid) => fid,
+        Err(e) => panic!("decode log record pos err: {}", e),
+    };
+    let offset = match decode_varint(&mut buf) {
+        Ok(offset) => offset,
+        Err(e) => panic!("decode log record pos err: {}", e),
+    };
+    LogRecordPos {
+        file_id: fid as u32,
+        offset,
+    }
+
 }
 
 #[cfg(test)]

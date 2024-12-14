@@ -9,9 +9,11 @@ use crate::{
     fio::{self, new_io_manager},
 };
 
-use super::log_record::{max_log_record_header_size, LogRecord, LogRecordType, ReadLogRecord};
+use super::log_record::{max_log_record_header_size, LogRecord, LogRecordPos, LogRecordType, ReadLogRecord};
 
 pub const DATA_FILE_NAME_SUFFIX: &str = ".data";
+pub const HINT_FILE_NAME: &str = "hint-index";
+pub const MERGE_FINISHED_FILE_NAME: &str = "merge-finished";
 
 // 数据文件
 pub struct DataFile {
@@ -30,6 +32,30 @@ impl DataFile {
 
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(file_id)),
+            write_off: Arc::new(RwLock::new(0)),
+            io_manager: Box::new(io_manager),
+        })
+    }
+
+    /// 新建或打开 hint 索引文件
+    pub fn new_hint_file(dir_path: PathBuf) -> Result<DataFile> {
+        let file_name = dir_path.join(HINT_FILE_NAME);
+        let io_manager = new_io_manager(file_name)?;
+
+        Ok(DataFile {
+            file_id: Arc::new(RwLock::new(0)),
+            write_off: Arc::new(RwLock::new(0)),
+            io_manager: Box::new(io_manager),
+        })
+    }
+
+    /// 新建或打开标识 merge 完成的文件
+    pub fn new_merge_fin_file(dir_path: PathBuf) ->Result<DataFile> {
+        let file_name = dir_path.join(MERGE_FINISHED_FILE_NAME);
+        let io_manager = new_io_manager(file_name)?;
+
+        Ok(DataFile {
+            file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
             io_manager: Box::new(io_manager),
         })
@@ -108,13 +134,25 @@ impl DataFile {
         Ok(n_bytes)
     }
 
+    /// 写 hint 索引到文件当中
+    pub fn write_hint_record(&self, key: Vec<u8>, pos: LogRecordPos) -> Result<()> {
+        let hint_record = LogRecord {
+            key,
+            value: pos.encode(),
+            rec_type: LogRecordType::NOMAL,
+        };
+        let enc_record = hint_record.encode();
+        self.write(&enc_record)?;
+        Ok(())
+    }
+
     pub fn sync(&self) -> Result<()> {
         self.io_manager.sync()
     }
 }
 
 /// 获取文件名称
-fn get_data_file_name(dir_path: PathBuf, file_id: u32) -> PathBuf {
+pub fn get_data_file_name(dir_path: PathBuf, file_id: u32) -> PathBuf {
     let name = std::format!("{:09}", file_id) + DATA_FILE_NAME_SUFFIX;
     dir_path.join(name)
 }

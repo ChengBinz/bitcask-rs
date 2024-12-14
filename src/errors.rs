@@ -37,6 +37,9 @@ pub enum Errors {
     #[error("filed to create the database directory")]
     FailedToCreateDatabaseDir,
 
+    #[error("filed to read the database directory")]
+    FailedToReadDatabaseDir,
+
     #[error("database directory is corrupted")]
     DataDirectoryCorrupted,
 
@@ -48,6 +51,9 @@ pub enum Errors {
 
     #[error("exceed the max batch num")]
     ExceedMaxBatchNum,
+
+    #[error("merge is in progress, try again later")]
+    MergeInProgress,
 }
 
 pub type Result<T> = result::Result<T, Errors>;
