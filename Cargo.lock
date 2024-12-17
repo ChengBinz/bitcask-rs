@@ -84,6 +84,7 @@ dependencies = [
  "fs_extra",
  "jammdb",
  "log",
+ "memmap2",
  "parking_lot",
  "prost",
  "thiserror",

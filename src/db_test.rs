@@ -198,24 +198,24 @@ fn test_engine_sync() {
     std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
 }
 
-// #[test]
-// fn test_engine_filelock() {
-//     let mut opts = Options::default();
-//     opts.dir_path = PathBuf::from("/tmp/bitcask-rs-flock");
-//     let engine = Engine::open(opts.clone()).expect("failed to open engine");
+#[test]
+fn test_engine_filelock() {
+    let mut opts = Options::default();
+    opts.dir_path = PathBuf::from("/tmp/bitcask-rs-flock");
+    let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
-//     let res1 = Engine::open(opts.clone());
-//     assert_eq!(res1.err().unwrap(), Errors::DatabaseIsUsing);
+    let res1 = Engine::open(opts.clone());
+    assert_eq!(res1.err().unwrap(), Errors::DatabaseIsUsing);
 
-//     let res2 = engine.close();
-//     assert!(res2.is_ok());
+    let res2 = engine.close();
+    assert!(res2.is_ok());
 
-//     let res3 = Engine::open(opts.clone());
-//     assert!(res3.is_ok());
+    let res3 = Engine::open(opts.clone());
+    assert!(res3.is_ok());
 
-//     // 删除测试的文件夹
-//     std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
-// }
+    // 删除测试的文件夹
+    std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
+}
 
 // #[test]
 // fn test_engine_stat() {

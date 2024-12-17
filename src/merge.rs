@@ -5,12 +5,15 @@ use log::error;
 use crate::{
     batch::{log_record_key_with_seq, parse_log_record_key},
     data::{
-        data_file::{get_data_file_name, DataFile, HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME},
+        data_file::{
+            get_data_file_name, DataFile, HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME,
+            SEQ_NO_FILE_NAME,
+        },
         log_record::{decode_log_record_pos, LogRecord, LogRecordType},
     },
-    db::{Engine, NON_TRANSACTION_SEQ_NO},
+    db::{Engine, FILE_LOCK_NAME, NON_TRANSACTION_SEQ_NO},
     errors::{Errors, Result},
-    options::Options,
+    options::{IOType, Options},
 };
 
 const MERGE_DIR_NAME: &str = "merge";
@@ -110,11 +113,19 @@ impl Engine {
         // sync 数据文件保证持久性
         active_file.sync()?;
         let active_file_id = active_file.get_file_id();
-        let new_active_file = DataFile::new(self.options.dir_path.clone(), active_file_id + 1)?;
+        let new_active_file = DataFile::new(
+            self.options.dir_path.clone(),
+            active_file_id + 1,
+            IOType::StandardFIO,
+        )?;
         *active_file = new_active_file;
 
         // 加到旧的数据文件当中
-        let old_file = DataFile::new(self.options.dir_path.clone(), active_file_id)?;
+        let old_file = DataFile::new(
+            self.options.dir_path.clone(),
+            active_file_id,
+            IOType::StandardFIO,
+        )?;
         older_files.insert(active_file_id, old_file);
 
         // 加到待 merge 的文件 id 列表中
@@ -125,7 +136,8 @@ impl Engine {
         // 打开所有需要 merge 的数据文件
         let mut merge_files = Vec::new();
         for file_id in merge_file_ids.iter() {
-            let data_file = DataFile::new(self.options.dir_path.clone(), *file_id)?;
+            let data_file =
+                DataFile::new(self.options.dir_path.clone(), *file_id, IOType::StandardFIO)?;
             merge_files.push(data_file);
         }
 
@@ -199,6 +211,9 @@ pub(crate) fn load_merge_files(dir_path: PathBuf) -> Result<()> {
                 merge_finished = true;
             }
             if file_name.ends_with(SEQ_NO_FILE_NAME) {
+                continue;
+            }
+            if file_name.ends_with(FILE_LOCK_NAME) {
                 continue;
             }
             merge_file_names.push(entry.file_name());
