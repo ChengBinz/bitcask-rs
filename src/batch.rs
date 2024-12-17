@@ -11,6 +11,7 @@ use crate::{
     data::log_record::{LogRecord, LogRecordType},
     db::Engine,
     errors::{Errors, Result},
+    options::IndexType::BPlusTree,
     options::WriteBatchOptions,
 };
 
@@ -24,7 +25,11 @@ pub struct WriteBatch<'a> {
 }
 
 impl Engine {
+    /// 初始化 WriteBatch
     pub fn new_write_batch(&self, options: WriteBatchOptions) -> Result<WriteBatch> {
+        if self.options.index_type == BPlusTree && !self.seq_file_exists && !self.is_initial {
+            return Err(Errors::UnableToUseWriteBatch);
+        }
         Ok(WriteBatch {
             pending_writes: Arc::new(Mutex::new(HashMap::new())),
             engine: self,

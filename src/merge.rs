@@ -2,7 +2,16 @@ use std::{fs, path::PathBuf};
 
 use log::error;
 
-use crate::{batch::{log_record_key_with_seq, parse_log_record_key}, data::{data_file::{get_data_file_name, DataFile, HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME}, log_record::{decode_log_record_pos, LogRecord, LogRecordType}}, db::{Engine, NON_TRANSACTION_SEQ_NO}, errors::{Errors, Result}, options::Options};
+use crate::{
+    batch::{log_record_key_with_seq, parse_log_record_key},
+    data::{
+        data_file::{get_data_file_name, DataFile, HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME},
+        log_record::{decode_log_record_pos, LogRecord, LogRecordType},
+    },
+    db::{Engine, NON_TRANSACTION_SEQ_NO},
+    errors::{Errors, Result},
+    options::Options,
+};
 
 const MERGE_DIR_NAME: &str = "merge";
 const MERGE_FIN_KEY: &[u8] = "merge.finished".as_bytes();
@@ -58,7 +67,7 @@ impl Engine {
                     // 如果文件 id 和 偏移 offset 均相等，则说明是一条有效的数据
                     if index_pos.file_id == data_file.get_file_id() && index_pos.offset == offset {
                         // 去除事务的标识
-                        log_record.key = 
+                        log_record.key =
                             log_record_key_with_seq(real_key.clone(), NON_TRANSACTION_SEQ_NO);
                         let log_record_pos = merge_db.append_log_record(&mut log_record)?;
                         // 写 hint 索引
@@ -86,7 +95,7 @@ impl Engine {
         merge_fin_file.sync()?;
 
         Ok(())
-    }    
+    }
 
     fn rotate_merge_files(&self) -> Result<Vec<DataFile>> {
         // 取出旧的数据文件的 id
@@ -188,6 +197,9 @@ pub(crate) fn load_merge_files(dir_path: PathBuf) -> Result<()> {
 
             if file_name.ends_with(MERGE_FINISHED_FILE_NAME) {
                 merge_finished = true;
+            }
+            if file_name.ends_with(SEQ_NO_FILE_NAME) {
+                continue;
             }
             merge_file_names.push(entry.file_name());
         }

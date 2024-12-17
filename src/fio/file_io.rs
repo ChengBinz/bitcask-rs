@@ -12,6 +12,7 @@ use parking_lot::RwLock;
 
 use super::IOManager;
 
+#[derive(Debug)]
 /// FileIO 标准文件系统 IO
 pub struct FileIO {
     fd: Arc<RwLock<File>>, // 系统文件描述符
@@ -69,6 +70,12 @@ impl IOManager for FileIO {
             return Err(Errors::FailedSyncDataFile);
         }
         Ok(())
+    }
+
+    fn size(&self) -> u64 {
+        let read_guard = self.fd.read();
+        let metadata = read_guard.metadata().unwrap();
+        metadata.len()
     }
 }
 
@@ -143,6 +150,26 @@ mod test {
 
         let sync_res = fio.sync();
         assert!(sync_res.is_ok());
+
+        let res3 = fs::remove_file(path.clone());
+        assert!(res3.is_ok());
+    }
+
+    #[test]
+    fn test_file_io_size() {
+        let path = PathBuf::from("/tmp/d.data");
+        let fio_res = FileIO::new(path.clone());
+        assert!(fio_res.is_ok());
+        let fio = fio_res.ok().unwrap();
+
+        let size1 = fio.size();
+        assert_eq!(size1, 0);
+
+        let res2 = fio.write("key-b".as_bytes());
+        assert!(res2.is_ok());
+
+        let size2 = fio.size();
+        assert_eq!(size2, 5);
 
         let res3 = fs::remove_file(path.clone());
         assert!(res3.is_ok());

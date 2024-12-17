@@ -11,16 +11,20 @@ pub struct Options {
     // 是否每次写都持久化
     pub sync_writes: bool,
 
+    // 索引类型
     pub index_type: IndexType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum IndexType {
-    // BTree 索引
+    /// BTree 索引
     BTree,
 
-    // 跳表索引
+    /// 跳表索引
     SkipList,
+
+    /// B+树索引，将索引存储到磁盘上
+    BPlusTree,
 }
 
 impl Default for Options {

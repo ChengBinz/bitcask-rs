@@ -1,10 +1,11 @@
 use std::panic;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use prost::{
-    encode_length_delimiter, 
+    encode_length_delimiter,
     encoding::{decode_varint, encode_varint},
-    length_delimiter_len};
+    length_delimiter_len,
+};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum LogRecordType {
@@ -30,8 +31,8 @@ pub struct LogRecord {
 //  数据位置索引信息，描述数据存储到了哪个位置
 #[derive(Clone, Copy, Debug)]
 pub struct LogRecordPos {
-    pub(crate) file_id: u32,    // 文件 id, 表示将数据存储到了哪个文件当中
-    pub(crate) offset: u64,     // 偏移, 表示将数据存储到了数据文件中的哪个位置
+    pub(crate) file_id: u32, // 文件 id, 表示将数据存储到了哪个文件当中
+    pub(crate) offset: u64,  // 偏移, 表示将数据存储到了数据文件中的哪个位置
 }
 
 #[derive(Debug)]
@@ -142,7 +143,6 @@ pub fn decode_log_record_pos(pos: Vec<u8>) -> LogRecordPos {
         file_id: fid as u32,
         offset,
     }
-
 }
 
 #[cfg(test)]
