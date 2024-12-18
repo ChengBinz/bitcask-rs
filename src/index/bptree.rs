@@ -33,14 +33,28 @@ impl BPlusTree {
 }
 
 impl Indexer for BPlusTree {
-    fn put(&self, key: Vec<u8>, pos: crate::data::log_record::LogRecordPos) -> bool {
+    fn put(
+        &self,
+        key: Vec<u8>,
+        pos: crate::data::log_record::LogRecordPos,
+    ) -> Option<LogRecordPos> {
+        let mut result = None;
         let tx = self.tree.tx(true).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
+
+        // 先获取到旧的值
+        if let Some(kv) = bucket.get_kv(&key) {
+            let pos = decode_log_record_pos(kv.value().to_vec());
+            result = Some(pos);
+        }
+
+        // put 新值
         bucket
             .put(key, pos.encode())
             .expect("failed to put value in bptree");
         tx.commit().unwrap();
-        true
+
+        result
     }
 
     fn get(&self, key: Vec<u8>) -> Option<crate::data::log_record::LogRecordPos> {
@@ -52,16 +66,16 @@ impl Indexer for BPlusTree {
         None
     }
 
-    fn delete(&self, key: Vec<u8>) -> bool {
+    fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos> {
+        let mut result = None;
         let tx = self.tree.tx(true).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
-        if let Err(e) = bucket.delete(key) {
-            if e == Error::KeyValueMissing {
-                return false;
-            }
+        if let Ok(kv) = bucket.delete(key) {
+            let pos = decode_log_record_pos(kv.value().to_vec());
+            result = Some(pos);
         }
         tx.commit().unwrap();
-        true
+        result
     }
 
     fn list_keys(&self) -> crate::errors::Result<Vec<bytes::Bytes>> {
@@ -151,34 +165,55 @@ mod tests {
         fs::create_dir_all(path.clone()).unwrap();
         let bpt = BPlusTree::new(path.clone());
 
-        bpt.put(
+        let res1 = bpt.put(
             b"ccbde".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
-        bpt.put(
+        assert!(res1.is_none());
+        let res2 = bpt.put(
             b"bbed".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
-        bpt.put(
+        assert!(res2.is_none());
+        let res3 = bpt.put(
             b"aeer".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
-        bpt.put(
+        assert!(res3.is_none());
+        let res4 = bpt.put(
             b"cccd".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
+        assert!(res4.is_none());
+
+        let res5 = bpt.put(
+            b"cccd".to_vec(),
+            LogRecordPos {
+                file_id: 77,
+                offset: 11,
+                size: 11,
+            },
+        );
+        assert!(res5.is_some());
+        let v = res5.unwrap();
+        assert_eq!(v.file_id, 123);
+        assert_eq!(v.offset, 883);
 
         fs::remove_dir_all(path.clone()).unwrap();
     }
@@ -192,23 +227,27 @@ mod tests {
         let v1 = bpt.get(b"not exist".to_vec());
         assert!(v1.is_none());
 
-        bpt.put(
+        let res1 = bpt.put(
             b"ccbde".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
+        assert!(res1.is_none());
         let v2 = bpt.get(b"ccbde".to_vec());
         assert!(v2.is_some());
 
-        bpt.put(
+        let res2 = bpt.put(
             b"ccbde".to_vec(),
             LogRecordPos {
                 file_id: 125,
                 offset: 77773,
+                size: 11,
             },
         );
+        assert!(res2.is_some());
         let v3 = bpt.get(b"ccbde".to_vec());
         assert!(v3.is_some());
 
@@ -222,17 +261,21 @@ mod tests {
         let bpt = BPlusTree::new(path.clone());
 
         let r1 = bpt.delete(b"not exist".to_vec());
-        assert_eq!(r1, false);
+        assert!(r1.is_none());
 
         bpt.put(
             b"ccbde".to_vec(),
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         let r2 = bpt.delete(b"ccbde".to_vec());
-        assert_eq!(r2, true);
+        assert!(r2.is_some());
+        let v = r2.unwrap();
+        assert_eq!(v.file_id, 123);
+        assert_eq!(v.offset, 883);
 
         let v2 = bpt.get(b"ccbde".to_vec());
         assert!(v2.is_none());
@@ -254,6 +297,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -261,6 +305,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -268,6 +313,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -275,6 +321,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
 
@@ -295,6 +342,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -302,6 +350,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -309,6 +358,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
         bpt.put(
@@ -316,6 +366,7 @@ mod tests {
             LogRecordPos {
                 file_id: 123,
                 offset: 883,
+                size: 11,
             },
         );
 

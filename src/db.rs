@@ -23,6 +23,7 @@ use crate::{
     index,
     merge::load_merge_files,
     options::{IOType, IndexType, Options},
+    util::file::dir_disk_size,
 };
 
 const INITIAL_FILE_ID: u32 = 0;
@@ -44,6 +45,22 @@ pub struct Engine {
     pub(crate) is_initial: bool, // 是否是第一次初始化该目录
     lock_file: File,    // 文件锁，保证只能在数据目录上打开一个实例
     bytes_write: Arc<AtomicUsize>, // 累计写入了多少字节
+    pub(crate) reclaim_size: Arc<AtomicUsize>, // 累计有多少空间可以 merge
+}
+
+/// 存储引擎相关统计信息
+pub struct Stat {
+    // key 的总数量
+    pub key_num: usize,
+
+    // 数据文件的数量
+    pub data_file_num: usize,
+
+    // 可以回收的数据量
+    pub reclaim_size: usize,
+
+    // 数据目录占据的磁盘空间大小
+    pub disk_size: u64,
 }
 
 ///
@@ -124,6 +141,7 @@ impl Engine {
             is_initial,
             lock_file,
             bytes_write: Arc::new(AtomicUsize::new(0)),
+            reclaim_size: Arc::new(AtomicUsize::new(0)),
         };
 
         // B+ 树则不要从数据文件中加载索引
@@ -194,7 +212,19 @@ impl Engine {
         read_guard.sync()
     }
 
-    /// 出处 key/value 数据，key 不能为空
+    /// 获取数据库统计信息
+    pub fn stat(&self) -> Result<Stat> {
+        let keys = self.list_keys()?;
+        let older_files = self.older_files.read();
+        Ok(Stat {
+            key_num: keys.len(),
+            data_file_num: older_files.len() + 1,
+            reclaim_size: self.reclaim_size.load(Ordering::SeqCst),
+            disk_size: dir_disk_size(self.options.dir_path.clone()),
+        })
+    }
+
+    /// 存储 key/value 数据，key 不能为空
     pub fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
         // 判断 key 的有效性
         if key.is_empty() {
@@ -212,10 +242,11 @@ impl Engine {
         let log_record_pos = self.append_log_record(&mut record)?;
 
         // 更新内存索引
-        let ok = self.index.put(key.to_vec(), log_record_pos);
-        if !ok {
-            return Err(Errors::IndexUpdateFailed);
+        if let Some(old_pos) = self.index.put(key.to_vec(), log_record_pos) {
+            self.reclaim_size
+                .fetch_add(old_pos.size as usize, Ordering::SeqCst);
         }
+
         Ok(())
     }
 
@@ -240,12 +271,14 @@ impl Engine {
         };
 
         // 写入到数据文件中
-        self.append_log_record(&mut record)?;
+        let pos = self.append_log_record(&mut record)?;
+        self.reclaim_size
+            .fetch_add(pos.size as usize, Ordering::SeqCst);
 
         // 删除内存索引中对应的 key
-        let ok = self.index.delete(key.to_vec());
-        if !ok {
-            return Err(Errors::IndexUpdateFailed);
+        if let Some(old_pos) = self.index.delete(key.to_vec()) {
+            self.reclaim_size
+                .fetch_add(old_pos.size as usize, Ordering::SeqCst);
         }
 
         Ok(())
@@ -351,6 +384,7 @@ impl Engine {
         Ok(LogRecordPos {
             file_id: active_file.get_file_id(),
             offset: write_off,
+            size: enc_record.len() as u32,
         })
     }
 
@@ -413,6 +447,7 @@ impl Engine {
                 let log_record_pos = LogRecordPos {
                     file_id: *file_id,
                     offset,
+                    size: size as u32,
                 };
 
                 // 解析 key，拿到实际的 key 和 seq no
@@ -465,10 +500,17 @@ impl Engine {
     // 加载索引时更新内存数据
     fn update_index(&self, key: Vec<u8>, rec_type: LogRecordType, pos: LogRecordPos) {
         if rec_type == LogRecordType::NOMAL {
-            self.index.put(key.clone(), pos);
+            if let Some(old_pos) = self.index.put(key.clone(), pos) {
+                self.reclaim_size
+                    .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+            }
         }
         if rec_type == LogRecordType::DELETED {
-            self.index.delete(key);
+            let mut size = pos.size;
+            if let Some(old_pos) = self.index.delete(key) {
+                size += old_pos.size;
+            }
+            self.reclaim_size.fetch_add(size as usize, Ordering::SeqCst);
         }
     }
 
@@ -561,6 +603,10 @@ fn check_options(opts: Options) -> Option<Errors> {
 
     if opts.data_file_size <= 0 {
         return Some(Errors::DataFileSizeTooSmall);
+    }
+
+    if opts.data_file_merge_ratio < 0 as f32 || opts.data_file_merge_ratio > 1 as f32 {
+        return Some(Errors::InvalidMergeRatio);
     }
 
     None

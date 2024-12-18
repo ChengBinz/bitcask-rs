@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::atomic::Ordering};
 
 use log::error;
 
@@ -6,14 +6,15 @@ use crate::{
     batch::{log_record_key_with_seq, parse_log_record_key},
     data::{
         data_file::{
-            get_data_file_name, DataFile, HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME,
-            SEQ_NO_FILE_NAME,
+            get_data_file_name, DataFile, DATA_FILE_NAME_SUFFIX, HINT_FILE_NAME,
+            MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
         },
         log_record::{decode_log_record_pos, LogRecord, LogRecordType},
     },
     db::{Engine, FILE_LOCK_NAME, NON_TRANSACTION_SEQ_NO},
     errors::{Errors, Result},
     options::{IOType, Options},
+    util,
 };
 
 const MERGE_DIR_NAME: &str = "merge";
@@ -22,10 +23,26 @@ const MERGE_FIN_KEY: &[u8] = "merge.finished".as_bytes();
 impl Engine {
     // merge 数据目录，处理无效数据，并生成 hint 索引文件
     pub fn merge(&self) -> Result<()> {
+        if self.is_empty_engine() {
+            return Ok(());
+        }
         // 如果正在 merge 则直接返回
         let lock = self.merging_lock.try_lock();
         if lock.is_none() {
             return Err(Errors::MergeInProgress);
+        }
+
+        // 判断是否达到了 merge 的比例阈值
+        let reclaim_size = self.reclaim_size.load(Ordering::SeqCst);
+        let total_size = util::file::dir_disk_size(self.options.dir_path.clone());
+        if (reclaim_size as f32 / total_size as f32) < self.options.data_file_merge_ratio {
+            return Err(Errors::MergeRatioUnreached);
+        }
+
+        // 判断磁盘剩余空间是否足够容纳 merge 之后的数据
+        let available_size = util::file::available_disk_size();
+        if total_size - reclaim_size as u64 >= available_size {
+            return Err(Errors::MergeNoEnoughSpace);
         }
 
         let merge_path = get_merge_path(self.options.dir_path.clone());
@@ -98,6 +115,12 @@ impl Engine {
         merge_fin_file.sync()?;
 
         Ok(())
+    }
+
+    fn is_empty_engine(&self) -> bool {
+        let active_file = self.active_file.read();
+        let older_files = self.older_files.read();
+        active_file.get_write_off() == 0 && older_files.len() == 0
     }
 
     fn rotate_merge_files(&self) -> Result<Vec<DataFile>> {
@@ -214,6 +237,11 @@ pub(crate) fn load_merge_files(dir_path: PathBuf) -> Result<()> {
                 continue;
             }
             if file_name.ends_with(FILE_LOCK_NAME) {
+                continue;
+            }
+            // 数据文件容量为空则跳过
+            let meta = entry.metadata().unwrap();
+            if file_name.ends_with(DATA_FILE_NAME_SUFFIX) && meta.len() == 0 {
                 continue;
             }
             merge_file_names.push(entry.file_name());
