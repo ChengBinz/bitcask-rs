@@ -7,7 +7,10 @@ pub fn get_test_key(i: usize) -> Bytes {
 
 #[allow(dead_code)]
 pub fn get_test_value(i: usize) -> Bytes {
-    Bytes::from(std::format!("bitcask-rs-value-{:09}", i))
+    Bytes::from(std::format!(
+        "bitcask-rs-value-value-value-value-value-value-value-value-value-{:09}",
+        i
+    ))
 }
 
 #[test]

@@ -112,6 +112,8 @@ impl Engine {
             file_ids.push(v.get_file_id());
         }
 
+        // 将旧的数据文件放到后面，新的数据文件在第一个位置
+        data_files.reverse();
         // 将旧的数据文件保存到 older_files 中
         let mut older_files = HashMap::new();
         if data_files.len() > 1 {

@@ -1,9 +1,11 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use actix_web::{delete, get, post, web::{self, Bytes}, App, HttpResponse, HttpServer, Responder, Scope};
+use actix_web::{
+    delete, get, post,
+    web::{self, Bytes},
+    App, HttpResponse, HttpServer, Responder, Scope,
+};
 use bitcask_rs::{db::Engine, options::Options};
-
-
 
 #[post("/put")]
 async fn put_handler(
@@ -56,7 +58,9 @@ async fn listkeys_handler(eng: web::Data<Arc<Engine>>) -> impl Responder {
         .collect::<Vec<String>>();
 
     let result = serde_json::to_string(&keys).unwrap();
-    HttpResponse::Ok().content_type("application/json").body(result)
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .body(result)
 }
 
 #[get("/stat")]
