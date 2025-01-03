@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use bytes::Bytes;
-use jammdb::{Error, DB};
+use jammdb::DB;
 
 use crate::{
     data::log_record::{decode_log_record_pos, LogRecordPos},

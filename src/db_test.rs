@@ -243,27 +243,27 @@ fn test_engine_stat() {
     std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
 }
 
-// #[test]
-// fn test_engine_backup() {
-//     let mut opts = Options::default();
-//     opts.dir_path = PathBuf::from("/tmp/bitcask-rs-backup");
-//     let engine = Engine::open(opts.clone()).expect("failed to open engine");
+#[test]
+fn test_engine_backup() {
+    let mut opts = Options::default();
+    opts.dir_path = PathBuf::from("/tmp/bitcask-rs-backup");
+    let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
-//     for i in 0..=10000 {
-//         let res = engine.put(get_test_key(i), get_test_value(i));
-//         assert!(res.is_ok());
-//     }
+    for i in 0..=10000 {
+        let res = engine.put(get_test_key(i), get_test_value(i));
+        assert!(res.is_ok());
+    }
 
-//     let backup_dir = PathBuf::from("/tmp/bitcask-rs-backup-test");
-//     let bak_res = engine.backup(backup_dir.clone());
-//     assert!(bak_res.is_ok());
+    let backup_dir = PathBuf::from("/tmp/bitcask-rs-backup-test");
+    let bak_res = engine.backup(backup_dir.clone());
+    assert!(bak_res.is_ok());
 
-//     let mut opts1 = Options::default();
-//     opts1.dir_path = backup_dir.clone();
-//     let eng2 = Engine::open(opts1);
-//     assert!(eng2.is_ok());
+    let mut opts1 = Options::default();
+    opts1.dir_path = backup_dir.clone();
+    let eng2 = Engine::open(opts1);
+    assert!(eng2.is_ok());
 
-//     // 删除测试的文件夹
-//     std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
-//     std::fs::remove_dir_all(backup_dir).expect("failed to remove path");
-// }
+    // 删除测试的文件夹
+    std::fs::remove_dir_all(opts.clone().dir_path).expect("failed to remove path");
+    std::fs::remove_dir_all(backup_dir).expect("failed to remove path");
+}
